@@ -6,7 +6,7 @@
 
 #### **1.未经裁减直接编译**
 
-![](https://github.com/wyt2000/OSH-2020-Labs/blob/master/lab1/docs/pic/1.png)
+![](https://github.com/wyt2000/OSH-2020-Labs/blob/master/lab1/docs/pics/1.png)
 
 屏幕上有输出，说明编译成功。
 
@@ -16,7 +16,7 @@ General setup->Compiler opimization level
 
 关闭O2优化，内核缩小为7.7MB。
 
-![](https://github.com/wyt2000/OSH-2020-Labs/blob/master/lab1/docs/pic/2.png)
+![](https://github.com/wyt2000/OSH-2020-Labs/blob/master/lab1/docs/pics/2.png)
 
 #### 3.在2的基础上，裁减linux内核至不超过4MB
 
@@ -42,7 +42,7 @@ Security options,Cryptographic API,Kernel hacking：全部关闭。
 
 最后裁减到3.7MB。
 
-![](https://github.com/wyt2000/OSH-2020-Labs/blob/master/lab1/docs/pic/3.png)
+![](https://github.com/wyt2000/OSH-2020-Labs/blob/master/lab1/docs/pics/3.png)
 
 建议：我本来想在网上找有没有内核配置的手册来解释每个选项的意思，但是找到的都是较早版本的内核配置，而一个个选项去查help又有点太浪费时间了，最后我不断尝试出了一些选项是可以去掉的，而它们到底是什么意思还是没弄明白。希望助教能给出一个最小内核的裁减方案以及关键配置的含义。
 
@@ -50,7 +50,7 @@ Security options,Cryptographic API,Kernel hacking：全部关闭。
 
 #### 1.测试initrd
 
-![](https://github.com/wyt2000/OSH-2020-Labs/blob/master/lab1/docs/pic/4.png)
+![](https://github.com/wyt2000/OSH-2020-Labs/blob/master/lab1/docs/pics/4.png)
 
 由于输出信息较多，"Hello Linux!"会被刷掉，在printf后面增加了一句getchar()。
 
@@ -88,7 +88,7 @@ int main(){
 
 效果：
 
-![](https://github.com/wyt2000/OSH-2020-Labs/blob/master/lab1/docs/pic/5.png)
+![](https://github.com/wyt2000/OSH-2020-Labs/blob/master/lab1/docs/pics/5.png)
 
 ### 三、使用汇编语言，编写x86裸金属程序
 
@@ -143,7 +143,7 @@ DW 0xAA55                               ; magic number, mark it as a valid bootl
 
 效果：
 
-![](https://github.com/wyt2000/OSH-2020-Labs/blob/master/lab1/docs/pic/5.png)
+![](https://github.com/wyt2000/OSH-2020-Labs/blob/master/lab1/docs/pics/5.png)
 
 建议：一开始我用课程主页上的文档的方法声明常量0x046c，结果调了半天都没搞定，那个文档的x86汇编和nasm的语法不同，建议能提供符合nasm的文档。
 
@@ -174,7 +174,7 @@ UEFI启动流程：
 BIOS启动流程：
 
 1. 系统开机 - 上电自检（Power On Self Test 或 POST）。
-2. POST过后初始化用于启动的硬件（磁盘、键盘控制器等）。
+2. POST过后初始化用于启动的硬件（磁S盘、键盘控制器等）。
 3. BIOS会运行BIOS磁盘启动顺序中第一个磁盘的首440bytes（MBR启动代码区域）内的代码。
 4. 启动引导代码从BIOS获得控制权，然后引导启动下一阶段的代码（如果有的话）（一般是系统的启动引导代码）。
 5. 再次被启动的代码（二阶段代码）（即启动引导）会查阅支持和配置文件。
