@@ -6,7 +6,7 @@
 
 #### **1.未经裁减直接编译**
 
-![](../pics/1.png)
+![](./pics/1.png)
 
 屏幕上有输出，说明编译成功。
 
@@ -16,7 +16,7 @@ General setup->Compiler opimization level
 
 关闭O2优化，内核缩小为7.7MB。
 
-![](../pics/2.png)
+![](./pics/2.png)
 
 #### 3.在2的基础上，裁减linux内核至不超过4MB
 
@@ -42,7 +42,7 @@ Security options,Cryptographic API,Kernel hacking：全部关闭。
 
 最后裁减到3.7MB。
 
-![](../pics/3.png)
+![](./pics/3.png)
 
 建议：我本来想在网上找有没有内核配置的手册来解释每个选项的意思，但是找到的都是较早版本的内核配置，而一个个选项去查help又有点太浪费时间了，最后我不断尝试出了一些选项是可以去掉的，而它们到底是什么意思还是没弄明白。希望助教能给出一个最小内核的裁减方案以及关键配置的含义。
 
@@ -50,7 +50,7 @@ Security options,Cryptographic API,Kernel hacking：全部关闭。
 
 #### 1.测试initrd
 
-![](../pics/4.png)
+![](./pics/4.png)
 
 由于输出信息较多，"Hello Linux!"会被刷掉，在printf后面增加了一句getchar()。
 
@@ -88,7 +88,7 @@ int main(){
 
 效果：
 
-![](../pics/5.png)
+![](./pics/5.png)
 
 ### 三、使用汇编语言，编写x86裸金属程序
 
@@ -143,7 +143,7 @@ DW 0xAA55                               ; magic number, mark it as a valid bootl
 
 效果：
 
-![](../pics/6.png)
+![](./pics/6.png)
 
 建议：一开始我用课程主页上的文档的方法声明常量0x046c，结果调了半天都没搞定，那个文档的x86汇编和nasm的语法不同，建议能提供符合nasm的文档。
 
