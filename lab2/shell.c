@@ -4,18 +4,50 @@
 #include <string.h>
 #include <sys/wait.h>
 #include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #include <errno.h>
-
-void execute(char* args[]){//执行args命令的函数
+#include <signal.h>
+//和Bash的不同：ls>a>b 只会创建文件b
+_Bool doing;
+struct Redirect{ //用于重定向的文件描述符和文件名
+	_Bool exist;
+	char fd[128];
+	char fn[128];
+}r[128];
+void handler(int signum){ //处理ctrl+c中断信号
+	if(waitpid(-1,NULL,WNOHANG)) printf("\n# ");
+	fflush(stdout);
+}
+void keep(int signum){
+}
+void execute(char* args[], struct Redirect r){//执行args命令的函数
 	/* 没有输入命令 */
 	if (!args[0])
 	    return;
-
+	/*处理文件重定向*/
+	if(r.exist){
+		if(strcmp(r.fd,">")==0){
+			int fd = open(r.fn, O_WRONLY | O_CREAT,0644);
+			dup2(fd,1);
+			close(fd);
+		}
+		if(strcmp(r.fd,">>")==0){
+			int fd = open(r.fn, O_WRONLY | O_CREAT | O_APPEND,0644);
+			dup2(fd,1);
+			close(fd);
+		}
+		if(strcmp(r.fd,"<")==0){
+			int fd = open(r.fn, O_RDONLY,0644);
+			dup2(fd,0);
+			close(fd);
+		}
+	}
 	/* 内建命令 */
 	if (strcmp(args[0], "cd") == 0) {
 	    if (args[1])
 	        if(chdir(args[1])==-1) 
-	        	printf("bash: cd: %s: %s\n",args[1],strerror(errno));
+	        	fprintf(stderr,"bash: cd: %s: %s\n",args[1],strerror(errno));
 	    return;
 	}
 	if (strcmp(args[0], "pwd") == 0) {
@@ -36,6 +68,8 @@ void execute(char* args[]){//执行args命令的函数
 	    }
 	    return;
 	}
+
+
 	if (strcmp(args[0], "exit") == 0)
 	    exit(0);
 
@@ -47,77 +81,78 @@ void execute(char* args[]){//执行args命令的函数
 	    /* 子进程 */
 	    execvp(args[0], args);
 	    /* execvp失败 */
-	    printf("%s: command not found\n",args[0]);
+	    fprintf(stderr,"%s: command not found\n",args[0]);
 	    exit(0);
 	}
 	/* 父进程 */
-	waitpid(pid,NULL,0);
+	int status;
+	waitpid(pid,&status,0);
+	if(!WIFEXITED(status)) printf("\n");
 	return;
 }
 
 int main() {
     /* 输入的命令行 */
     char cmd[256];
+    char null[256];
+    char c;
     /* 命令行拆解成的各部分，以空指针结尾 */
     char *args[128][128];
-    int i,j;
-    int cnt=0;
+    _Bool isfn;
     while (1) {
-        /* 提示符 */
+    	memset(cmd,'\0',sizeof(cmd));
+    	args[0][0]=cmd;
+    	int i=0,j=0;
+    	r[0].exist=0;
+        isfn=0;
+
+        signal(SIGINT, handler);
+        
         printf("# ");
         fflush(stdin);
-        fgets(cmd, 256, stdin);
-        /* 清理结尾的换行符 */
-        for (i = 0; cmd[i] != '\n'; i++);
-        cmd[i] = '\0';
-    	/* 除去开头的空格 */ 
-    	char* p;
-        for (p = cmd; *p == ' '; p++);  
-		args[0][0]=p;
+        fflush(stdout);
 
-		/*按照'|'拆解命令行*/
-		for(i=0,j=0;*p!='\0';p++){
-			if(*p==' '){
-				while(*p==' '){
-					*p='\0';
-					p++;
-				}
-				if(*p=='|'){
-					*p='\0';
-					p++;
-					while(*p==' '){
-						*p='\0';
-						p++;
-					}
-					args[i][j+1]=NULL;
-					args[++i][0]=p;
-					j=0;
-				}
-				else args[i][++j]=p;
-			}
-			else if(*p=='|'){
-				*p='\0';
-				p++;
-				while(*p==' '){
-					*p='\0';
-					p++;
-				}
-				args[i][j+1]=NULL;
-				args[++i][0]=p;  
-				j=0;
-			}
-		}
-		if(strlen(args[i][j])) args[i][j+1]=NULL;
-		else args[i][j] = NULL;
+        /*分割命令行*/
+        while(1){
+        	scanf("%[ ]",null);
+      		if(!isfn) scanf("%[^ |<>\n]%*[ ]",args[i][j]);
+        	else{
+        		scanf("%[^ |<>\n]%*[ ]",r[i].fn);
+        		isfn=0;
+        	}
 
+        	c=getchar();
+        	if(c=='<'||c=='>'){
+        		ungetc(c,stdin);
+        		scanf("%[<>]",r[i].fd);
+        		r[i].exist=1;
+        		isfn=1;
+        	}
+        	else if(c=='|'){
+        		args[i][j+1]=NULL;
+        		args[i+1][0]=args[i][j]+strlen(args[i][j])+1;
+        		i++,j=0;
+        	}
+        	else if(c=='\n'){
+        		if(strlen(args[i][j])) args[i][j+1]=NULL;
+        		else args[i][j]=NULL;
+        		break;
+        	}
+        	else{
+        		ungetc(c,stdin);
+    			args[i][j+1]=args[i][j]+strlen(args[i][j])+1;
+        		j++;
+        	}
+        }
+		/*实现管道命令*/
 		int t,fd[2];
-		int fdt=dup(0);
+		int fdin=dup(0),fdout=dup(1);
 		for(t=0;t<i;t++){
 			pipe(fd);
-			if(fork()==0){ //ls
+			if(fork()==0){
 				dup2(fd[1],1);
 				close(fd[0]);
-				execute(args[t]);
+				execute(args[t],r[t]);
 				exit(0);
 			}
 			else{
@@ -125,8 +160,9 @@ int main() {
 				close(fd[1]);
 			}
 		}
-		execute(args[t]);  //wc
-		dup2(fdt,0);
+		execute(args[t],r[t]);
+		dup2(fdin,0);
+		dup2(fdout,1);
 		fflush(stdout);
     }
 }
