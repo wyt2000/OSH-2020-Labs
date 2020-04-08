@@ -8,41 +8,23 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <signal.h>
-//和Bash的不同：ls>a>b 只会创建文件b
-_Bool doing;
+
 struct Redirect{ //用于重定向的文件描述符和文件名
 	_Bool exist;
-	char fd[128];
-	char fn[128];
-}r[128];
+	int from;
+	char way[64];
+	char to[64];
+}r[64][64];
 void handler(int signum){ //处理ctrl+c中断信号
 	if(waitpid(-1,NULL,WNOHANG)) printf("\n# ");
 	fflush(stdout);
 }
-void keep(int signum){
-}
-void execute(char* args[], struct Redirect r){//执行args命令的函数
+void execute(char* args[], struct Redirect r[]){//执行args命令的函数
 	/* 没有输入命令 */
 	if (!args[0])
 	    return;
-	/*处理文件重定向*/
-	if(r.exist){
-		if(strcmp(r.fd,">")==0){
-			int fd = open(r.fn, O_WRONLY | O_CREAT,0644);
-			dup2(fd,1);
-			close(fd);
-		}
-		if(strcmp(r.fd,">>")==0){
-			int fd = open(r.fn, O_WRONLY | O_CREAT | O_APPEND,0644);
-			dup2(fd,1);
-			close(fd);
-		}
-		if(strcmp(r.fd,"<")==0){
-			int fd = open(r.fn, O_RDONLY,0644);
-			dup2(fd,0);
-			close(fd);
-		}
-	}
+
+
 	/* 内建命令 */
 	if (strcmp(args[0], "cd") == 0) {
 	    if (args[1])
@@ -79,6 +61,32 @@ void execute(char* args[], struct Redirect r){//执行args命令的函数
 	    printf("%s: %s\n",args[0],strerror(errno));
 	if (pid == 0) {
 	    /* 子进程 */
+		/*处理文件重定向*/
+		for(int k=0;r[k].exist;k++){
+			if(r[k].to[0]=='&'){
+				dup2(atoi(r[k].to+1),r[k].from);
+				continue;
+			}
+			if(strcmp(r[k].way,">")==0){
+				int fd = open(r[k].to, O_WRONLY | O_CREAT | O_TRUNC,0644);
+				dup2(fd,r[k].from);
+				close(fd);
+			}
+			else if(strcmp(r[k].way,">>")==0){
+				int fd = open(r[k].to, O_WRONLY | O_CREAT | O_APPEND,0644);
+				dup2(fd,r[k].from);
+				close(fd);
+			}
+			else if(strcmp(r[k].way,"<")==0){
+				int fd = open(r[k].to, O_RDONLY,0644);
+				dup2(fd,r[k].from);
+				close(fd);
+			}
+			else{
+				printf("bash: syntax error\n");
+				return;
+			}	
+		}
 	    execvp(args[0], args);
 	    /* execvp失败 */
 	    fprintf(stderr,"%s: command not found\n",args[0]);
@@ -98,13 +106,16 @@ int main() {
     char c;
     /* 命令行拆解成的各部分，以空指针结尾 */
     char *args[128][128];
-    _Bool isfn;
+    _Bool afterspace;
     while (1) {
     	memset(cmd,'\0',sizeof(cmd));
     	args[0][0]=cmd;
-    	int i=0,j=0;
-    	r[0].exist=0;
-        isfn=0;
+    	int i=0,j=0,k=0;
+    	for(int x=0;x<64;x++){
+    		for(int y=0;y<64;y++){
+    			r[x][y].exist=0;
+    		}
+    	}
 
         signal(SIGINT, handler);
         
@@ -115,23 +126,34 @@ int main() {
         /*分割命令行*/
         while(1){
         	scanf("%[ ]",null);
-      		if(!isfn) scanf("%[^ |<>\n]%*[ ]",args[i][j]);
-        	else{
-        		scanf("%[^ |<>\n]%*[ ]",r[i].fn);
-        		isfn=0;
-        	}
-
+      		scanf("%[^ |<>\n]",args[i][j]);       	
+        	afterspace=scanf("%[ ]",null);
         	c=getchar();
         	if(c=='<'||c=='>'){
         		ungetc(c,stdin);
-        		scanf("%[<>]",r[i].fd);
-        		r[i].exist=1;
-        		isfn=1;
+        		scanf("%[<>]",r[i][k].way);
+        		if(afterspace||strspn(args[i][j],"0123456789")!=strlen(args[i][j])){
+        			if(c=='<') r[i][k].from=0;
+        			else r[i][k].from=1;
+     	  			if(strlen(args[i][j])){
+        				args[i][j+1]=args[i][j]+strlen(args[i][j])+1;
+        				j++;
+        			}
+        		}
+        		else if(strlen(args[i][j])){
+        			r[i][k].from=atoi(args[i][j]);
+        			args[i][j]=args[i][j]+strlen(args[i][j])+1;
+        		}
+        		scanf("%[ ]",null);	
+        		scanf("%[^ |<>\n]",r[i][k].to);
+        		r[i][k].exist=1;
+        		k++;
         	}
         	else if(c=='|'){
-        		args[i][j+1]=NULL;
+        		if(strlen(args[i][j])) args[i][j+1]=NULL;
+        		else args[i][j]=NULL;
         		args[i+1][0]=args[i][j]+strlen(args[i][j])+1;
-        		i++,j=0;
+        		i++,j=0,k=0;
         	}
         	else if(c=='\n'){
         		if(strlen(args[i][j])) args[i][j+1]=NULL;
@@ -140,10 +162,13 @@ int main() {
         	}
         	else{
         		ungetc(c,stdin);
-    			args[i][j+1]=args[i][j]+strlen(args[i][j])+1;
-        		j++;
+        		if(strlen(args[i][j])){
+        			args[i][j+1]=args[i][j]+strlen(args[i][j])+1;
+        			j++;
+        		}
         	}
         }
+
 		/*实现管道命令*/
 		int t,fd[2];
 		int fdin=dup(0),fdout=dup(1);
