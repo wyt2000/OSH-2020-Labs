@@ -23,8 +23,6 @@ void execute(char* args[], struct Redirect r[]){//执行args命令的函数
 	/* 没有输入命令 */
 	if (!args[0])
 	    return;
-
-
 	/* 内建命令 */
 	if (strcmp(args[0], "cd") == 0) {
 	    if (args[1])
@@ -60,14 +58,13 @@ void execute(char* args[], struct Redirect r[]){//执行args命令的函数
 	if(pid==-1) 
 	    printf("%s: %s\n",args[0],strerror(errno));
 	if (pid == 0) {
-	    /* 子进程 */
-		/*处理文件重定向*/
+		/*处理重定向*/
 		for(int k=0;r[k].exist;k++){
-			if(r[k].to[0]=='&'){
-				dup2(atoi(r[k].to+1),r[k].from);
-				continue;
-			}
 			if(strcmp(r[k].way,">")==0){
+				if(r[k].to[0]=='&'){
+					dup2(atoi(r[k].to+1),r[k].from);
+					continue;
+				}
 				int fd = open(r[k].to, O_WRONLY | O_CREAT | O_TRUNC,0644);
 				dup2(fd,r[k].from);
 				close(fd);
@@ -78,8 +75,44 @@ void execute(char* args[], struct Redirect r[]){//执行args命令的函数
 				close(fd);
 			}
 			else if(strcmp(r[k].way,"<")==0){
+				if(r[k].to[0]=='&'){
+					dup2(atoi(r[k].to+1),r[k].from);
+					continue;
+				}
 				int fd = open(r[k].to, O_RDONLY,0644);
+				if(fd==-1){
+					fprintf(stderr,"Bash: %s: %s\n",r[k].to,strerror(errno));
+					return;
+				}
 				dup2(fd,r[k].from);
+				close(fd);
+			}
+			else if(strcmp(r[k].way,"<<")==0){
+				char temp[256];
+				char *p=temp;
+				r[k].to[strlen(r[k].to)+1]='\0';
+				r[k].to[strlen(r[k].to)]='\n';
+				while(1){
+					printf("> ");
+					fgets(p,256,stdin);
+					if(strcmp(p,r[k].to)==0) break;
+					p+=strlen(p)+1;
+				}
+				int fd = open(".in", O_WRONLY | O_CREAT | O_APPEND,0644);
+				write(fd,temp,p-temp);
+				close(fd);
+				fd = open(".in", O_RDONLY ,0644);
+				dup2(fd,0);
+				close(fd);
+			}
+			else if(strcmp(r[k].way,"<<<")==0){
+				r[k].to[strlen(r[k].to)+1]='\0';
+				r[k].to[strlen(r[k].to)]='\n';
+				int fd = open(".in", O_WRONLY | O_CREAT | O_APPEND,0644);
+				write(fd,r[k].to,sizeof(r[k].to));
+				close(fd);
+				fd = open(".in", O_RDONLY ,0644);
+				dup2(fd,0);
 				close(fd);
 			}
 			else{
@@ -95,7 +128,11 @@ void execute(char* args[], struct Redirect r[]){//执行args命令的函数
 	/* 父进程 */
 	int status;
 	waitpid(pid,&status,0);
-	if(!WIFEXITED(status)) printf("\n");
+	if(!WIFEXITED(status)) printf("\n");	//处理嵌套shell时ctrl+c出现多余空行
+	for(int k=0;r[k].exist;k++)
+		if(strcmp(r[k].way,"<<")==0||strcmp(r[k].way,"<<<")==0)
+			if(fork()==0) 
+				execlp("rm","rm",".in" ,NULL);  //删掉here document生成的文件
 	return;
 }
 
@@ -107,6 +144,7 @@ int main() {
     /* 命令行拆解成的各部分，以空指针结尾 */
     char *args[128][128];
     _Bool afterspace;
+
     while (1) {
     	memset(cmd,'\0',sizeof(cmd));
     	args[0][0]=cmd;
@@ -124,17 +162,18 @@ int main() {
         fflush(stdout);
 
         /*分割命令行*/
-        while(1){
+        int cnt=0;
+        while(1){        	
         	scanf("%[ ]",null);
-      		scanf("%[^ |<>\n]",args[i][j]);       	
+      		scanf("%[^ |<>\n]",args[i][j]);
         	afterspace=scanf("%[ ]",null);
         	c=getchar();
         	if(c=='<'||c=='>'){
         		ungetc(c,stdin);
         		scanf("%[<>]",r[i][k].way);
         		if(afterspace||strspn(args[i][j],"0123456789")!=strlen(args[i][j])){
-        			if(c=='<') r[i][k].from=0;
-        			else r[i][k].from=1;
+     	  			if(r[i][k].way[0]=='<') r[i][k].from=0;
+					else r[i][k].from=1;
      	  			if(strlen(args[i][j])){
         				args[i][j+1]=args[i][j]+strlen(args[i][j])+1;
         				j++;
@@ -144,15 +183,24 @@ int main() {
         			r[i][k].from=atoi(args[i][j]);
         			args[i][j]=args[i][j]+strlen(args[i][j])+1;
         		}
+        		else{
+        			if(r[i][k].way[0]=='<') r[i][k].from=0;
+					else r[i][k].from=1;
+        		}
         		scanf("%[ ]",null);	
         		scanf("%[^ |<>\n]",r[i][k].to);
         		r[i][k].exist=1;
         		k++;
         	}
         	else if(c=='|'){
-        		if(strlen(args[i][j])) args[i][j+1]=NULL;
-        		else args[i][j]=NULL;
-        		args[i+1][0]=args[i][j]+strlen(args[i][j])+1;
+        		if(strlen(args[i][j])){
+        			args[i][j+1]=NULL;
+        			args[i+1][0]=args[i][j]+strlen(args[i][j])+1;
+        		}
+        		else{
+        			args[i+1][0]=args[i][j];
+        			args[i][j]=NULL;
+        		}
         		i++,j=0,k=0;
         	}
         	else if(c=='\n'){
