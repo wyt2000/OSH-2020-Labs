@@ -15,6 +15,47 @@ struct Redirect{ //用于重定向的文件描述符和文件名
 	char way[64];
 	char to[64];
 }r[64][64];
+struct Variables{ //shell变量
+	char name[256];
+	char value[256];
+}v[256];
+int cnt; //shell变量的计数器
+char* getvar(char* name){ //获取环境变量或shell变量 
+	char* t=getenv(name);
+	if(t) return t;
+	for(int i=0;i<cnt;i++){
+		if(strcmp(v[i].name,name)==0) return v[i].value;
+	}
+	return NULL;
+}
+void setvar(char* name,char* value){ //设置环境变量或shell变量
+	char* t=getenv(name);
+	if(t){
+		setenv(name,value,1);
+		return;
+	}
+	for(int i=0;i<cnt;i++){
+		if(strcmp(v[i].name,name)==0){
+			strcpy(v[i].value,value);
+			return;
+		}
+	}
+	strcpy(v[cnt].name,name);
+	strcpy(v[cnt].value,value);
+	cnt++;
+	return;
+}
+void unsetvar(char* name){ //删除环境变量或shell变量
+	unsetenv(name);
+	for(int i=0;i<cnt;i++){
+		if(strcmp(v[i].name,name)==0){
+			memset(v[i].name,'\0',sizeof(v[i].name));
+			memset(v[i].value,'\0',sizeof(v[i].value));
+			return;
+		}
+	}
+	return;
+}
 void handler(int signum){ //处理ctrl+c中断信号
 	if(waitpid(-1,NULL,WNOHANG)) printf("\n# ");
 	fflush(stdout);
@@ -24,6 +65,52 @@ void execute(char* args[], struct Redirect r[]){//执行args命令的函数
 	if (!args[0])
 	    return;
 	/* 内建命令 */
+	for(int i=0;args[i];i++){//更换变量
+		if(args[i][0]=='~'){
+			if(strlen(args[i])==1) args[i]=getenv("HOME");
+			else if(!strcmp(args[i],"~root")) args[i]="/root";
+			continue;
+		}
+		char temp[256],env[256];
+		memset(temp,'\0',sizeof(temp));
+		memset(env,'\0',sizeof(env));
+		char *p=args[i],*last=args[i];
+		_Bool isdollar=0;
+		_Bool isbrace=0;
+		while(1){
+			if(*p=='$'||*p=='\0'){
+				if(isdollar){
+					strncpy(env,last,p-last);
+					char* t=getvar(env);
+					if(t) strcat(temp,t);	
+				}
+				else strncat(temp,last,p-last);
+				last=p+1;
+				isdollar=1;
+				if(*p=='\0') break;
+			}
+			if(*p=='{'&&!isbrace){
+				last=p+1;
+				isbrace=1;
+			}
+			if(*p=='}'&&isbrace){
+				isbrace=0;
+				strncpy(env,last,p-last);
+				char* t=getvar(env);
+				if(t) strcat(temp,t);
+				isdollar=0;
+				last=p+1;
+			}
+			p++;
+		}
+		strcpy(args[i],temp);
+		if(!strlen(args[i])){
+			for(int j=i;args[j];j++){
+				args[j]=args[j+1];
+			}
+		}
+		if(!args[0]) return;
+	}
 	if (strcmp(args[0], "cd") == 0) {
 	    if (args[1])
 	        if(chdir(args[1])==-1) 
@@ -35,7 +122,13 @@ void execute(char* args[], struct Redirect r[]){//执行args命令的函数
 	    puts(getcwd(wd, 4096));
 	    return;
 	}
-	if (strcmp(args[0], "export") == 0) {
+	if (strcmp(args[0], "export") == 0||strcmp(args[0], "set") == 0||strcmp(args[0], "unset") == 0) {
+	    if(strcmp(args[0], "set") == 0&&args[1]==NULL){
+	    	for(int i=0;i<cnt;i++){
+	    		if(!strlen(v[i].name)) continue;
+	    		printf("%s=%s\n",v[i].name,v[i].value);
+	    	}
+	    }
 	    for (int i = 1; args[i] != NULL; i++) {
 	        /*处理每个变量*/
 	        char *name = args[i];
@@ -44,12 +137,12 @@ void execute(char* args[], struct Redirect r[]){//执行args命令的函数
 	            value++;
 	        *value = '\0';
 	        value++;
-	        setenv(name, value, 1);
+	        if(strcmp(args[0], "unset") == 0) setenv(name, value, 1);
+	    	if(strcmp(args[0], "set") == 0) setvar(name,value);
+	    	if(strcmp(args[0], "unset") == 0) unsetvar(name);
 	    }
 	    return;
 	}
-
-
 	if (strcmp(args[0], "exit") == 0)
 	    exit(0);
 
