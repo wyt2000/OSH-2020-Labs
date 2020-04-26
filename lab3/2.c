@@ -11,12 +11,17 @@ struct Pipe {
     int uid;
     int *fd;
 };
-
+struct Con{
+    pthread_t pid;
+    int uid;
+    int *puid;
+    int *fd;
+};
 
 void *handle_chat(void *data) {
     struct Pipe *pipe = (struct Pipe *)data;
-
-    char msg[10]="Message:";
+    char msg[10];
+    sprintf(msg,"user%d: ",pipe->uid);
     char buf;
     char *p=&buf;
     _Bool ismsg=1;
@@ -24,7 +29,7 @@ void *handle_chat(void *data) {
         if(recv(pipe->fd[pipe->uid], p, 1, 0)<=0) break;
         for(int i=0;i<31;i++){
             if(pipe->fd[i]&&i!=pipe->uid){
-                if(ismsg) send(pipe->fd[i], msg, 8, 0);
+                if(ismsg) send(pipe->fd[i], msg, strlen(msg), 0);
                 send(pipe->fd[i], p, 1, 0);
             }
         }
@@ -33,7 +38,14 @@ void *handle_chat(void *data) {
     }
     return NULL;
 }
-
+void *logout(void *data){
+    struct Con *con = (struct Con *)data;
+    pthread_join(con->pid,NULL);
+    con->fd[con->uid]=0;
+    *con->puid=con->uid;
+    printf("user%d disconnected!\n",con->uid);
+    return NULL;
+}
 
 int main(int argc, char **argv) {
     int socketfd,fd[32]={0};
@@ -56,9 +68,12 @@ int main(int argc, char **argv) {
         return 1;
     }
     pthread_t thread[32];
+    pthread_t signal[32];
     struct Pipe pipe[32];
+    struct Con con[32];
     for(int i=0;i<32;i++){
         pipe[i].fd=fd;
+        con[i].fd=fd;
     }
     while(1){
         int uid=-1;
@@ -80,13 +95,11 @@ int main(int argc, char **argv) {
         printf("user%d connected!\n",uid);
         pipe[uid].uid=uid;
         fd[uid]=fdt;
-
         pthread_create(&thread[uid], NULL, handle_chat, (void *)&pipe[uid]);
-
-    }
-    for(int i=0;i<32;i++){
-        pthread_join(thread[1], NULL);
-        printf("user%d disconnected!\n",i);
+        con[uid].pid=thread[uid];
+        con[uid].uid=uid;
+        con[uid].puid=&uid;
+        pthread_create(&signal[uid], NULL, logout, (void *)&con[uid]);
     }
     return 0;
 }
