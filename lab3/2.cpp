@@ -16,7 +16,6 @@ pthread_cond_t cv[32];
 pthread_t recv_thread[32];
 pthread_t send_thread[32];
 pthread_t log_thread[32];
-char buf;
 bool sending[32];
 
 struct Pipe {
@@ -65,24 +64,19 @@ void *handle_send(void *data) {
 
 void *handle_recv(void *data){
     struct Pipe *pipe = (struct Pipe *)data;
+    char buf;
     char *p=&buf;
     pthread_create(&send_thread[pipe->uid], NULL, handle_send, (void *)pipe); 
-    
     //get characters into the recv queue
     while(1){
         if(recv(pipe->fd[pipe->uid], p, 1, 0)<=0) break;
         send_queue[pipe->uid].push(*p);
-
-        //when meet the '\n', it means that the input ends, so I lock all the mutexes except the mutex of this uid.
-        //Then send the cv to wake up the send thread.
-        //if other recv threads finish the input after that, they will block here. 
+        printf("thread%d recv: %c\n",pipe->fd[pipe->uid],*p); 
         if(*p=='\n'){
             for(int i=0;i<32;i++) if(pipe->fd[i]&&i!=pipe->uid) pthread_mutex_lock(&send_mutex[i]);
             pthread_cond_signal(&cv[pipe->uid]);
         }
-
     }
-
     pthread_cancel(send_thread[pipe->uid]);
     return NULL;
 }
