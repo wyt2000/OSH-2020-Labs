@@ -11,12 +11,14 @@ using std::queue;
 
 queue<char> send_queue[32];
 
-pthread_mutex_t mutex[32];
+pthread_mutex_t recv_mutex[32];
+pthread_mutex_t send_mutex[32];
 pthread_cond_t cv[32];
 pthread_t recv_thread[32];
 pthread_t send_thread[32];
 pthread_t log_thread[32];
 char buf;
+bool sending[32];
 
 struct Pipe {
     int uid;
@@ -37,8 +39,9 @@ void *handle_send(void *data) {
     bool ismsg=1;
     printf("user%d: before send!\n",pipe->uid);
     while (1) {
-        pthread_mutex_lock(&mutex[pipe->uid]);
-        pthread_cond_wait(&cv[pipe->uid],&mutex[pipe->uid]);
+        pthread_mutex_lock(&send_mutex[pipe->uid]);
+        pthread_cond_wait(&cv[pipe->uid],&send_mutex[pipe->uid]);
+        //for(int i=0;i<32;i++) if(pipe->fd[i]) pthread_mutex_lock(&send_mutex[i]);
         printf("user%d: start send!\n",pipe->uid);
         while(!send_queue[pipe->uid].empty()){
             c=send_queue[pipe->uid].front();
@@ -53,7 +56,8 @@ void *handle_send(void *data) {
             if(ismsg) ismsg=0; 
             if(c=='\n') ismsg=1;
         }
-        pthread_mutex_unlock(&mutex[pipe->uid]);
+        //for(int i=0;i<32;i++) if(pipe->fd[i]) pthread_mutex_unlock(&send_mutex[i]);
+        pthread_mutex_unlock(&send_mutex[pipe->uid]);
     }
     return NULL;
 }
@@ -64,13 +68,14 @@ void *handle_recv(void *data){
     pthread_create(&send_thread[pipe->uid], NULL, handle_send, (void *)pipe); 
     sleep(1);
     while(1){
-        if(recv(pipe->fd[pipe->uid], p, 1, 0)<=0) break;
         //lock all queues and add message
-        for(int i=0;i<32;i++) if(pipe->fd[i]) pthread_mutex_lock(&mutex[i]);
+        for(int i=0;i<32;i++) if(pipe->fd[i]) pthread_mutex_lock(&recv_mutex[i]);
+        if(recv(pipe->fd[pipe->uid], p, 1, 0)<=0) break;
+        printf("user%d: recv %c\n",pipe->uid,*p);
         send_queue[pipe->uid].push(*p);
         //when a client finish input, send cond
         if(*p=='\n') pthread_cond_signal(&cv[pipe->uid]);
-        for(int i=0;i<32;i++) if(pipe->fd[i]) pthread_mutex_unlock(&mutex[i]);
+        for(int i=0;i<32;i++) if(pipe->fd[i]) pthread_mutex_unlock(&recv_mutex[i]);
     }
     pthread_cancel(send_thread[pipe->uid]);
     return NULL;
@@ -83,7 +88,8 @@ void *handle_logout(void *data){
     id->fd[id->uid]=0;
     *id->puid=id->uid;
     printf("user%d disconnected!\n",id->uid);
-    pthread_mutex_destroy(&mutex[id->uid]);
+    pthread_mutex_destroy(&recv_mutex[id->uid]);
+    pthread_mutex_destroy(&send_mutex[id->uid]);
     pthread_cond_destroy(&cv[id->uid]);
     return NULL;
 }
@@ -138,7 +144,8 @@ int main(int argc, char **argv) {
         while(!send_queue[uid].empty()) send_queue[uid].pop();
 
         //init mutex and cond
-        mutex[uid]=PTHREAD_MUTEX_INITIALIZER;
+        recv_mutex[uid]=PTHREAD_MUTEX_INITIALIZER;
+        send_mutex[uid]=PTHREAD_MUTEX_INITIALIZER;
         cv[uid]=PTHREAD_COND_INITIALIZER;
 
         //create recv thread
