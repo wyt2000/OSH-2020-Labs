@@ -7,6 +7,7 @@
 #include <pthread.h>
 #include <errno.h>
 #include <queue>
+#define MAXLEN 1049000 
 using std::queue;
 
 queue<char> send_queue[32];
@@ -31,10 +32,9 @@ struct ID{
 
 void *handle_send(void *data) {
     struct Pipe *pipe = (struct Pipe *)data;
-    char msg[10];
-    sprintf(msg,"user%d: ",pipe->uid);
-    char c;
-    bool ismsg=1;
+    char buf[MAXLEN];
+    sprintf(buf,"user%d: ",pipe->uid);
+    int pos=strlen(buf);
     while (1) {
         
         //wait for the ready signal to send
@@ -44,17 +44,18 @@ void *handle_send(void *data) {
         }
         //send all the characters in the send queue to the other clients
         while(!send_queue[pipe->uid].empty()){
-            c=send_queue[pipe->uid].front();
+            buf[pos]=send_queue[pipe->uid].front();
             send_queue[pipe->uid].pop();
-            for(int i=0;i<32;i++){
-                if(pipe->fd[i]&&i!=pipe->uid){
-                    if(ismsg) send(pipe->fd[i], msg, strlen(msg), 0);
-                    send(pipe->fd[i], &c, 1, 0);
-                }
-            }
-            if(ismsg) ismsg=0; 
-            if(c=='\n') ismsg=1;
+            pos++;
         }
+        buf[pos]='\0';
+        for(int i=0;i<32;i++){
+            if(pipe->fd[i]&&i!=pipe->uid){
+                send(pipe->fd[i], buf, strlen(buf), 0);
+            }
+        }
+        sprintf(buf,"user%d: ",pipe->uid);
+        pos=strlen(buf);
 
         //unlock all the mutex for other threads to send 
         for(int i=0;i<32;i++) if(pipe->fd[i]) pthread_mutex_unlock(&send_mutex[i]);

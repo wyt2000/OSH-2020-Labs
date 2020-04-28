@@ -6,6 +6,7 @@
 #include <netinet/in.h>
 #include <pthread.h>
 #include <errno.h>
+#define MAXLEN 1049000 
 
 struct Pipe {
     int fd_send;
@@ -14,15 +15,17 @@ struct Pipe {
 
 void *handle_chat(void *data) {
     struct Pipe *pipe = (struct Pipe *)data;
-    char msg[10]="Message:";
-    char buf;
-    char *p=&buf;
-    _Bool ismsg=1;
+    char buf[MAXLEN]="Message:";
+    char *p=buf+8;
     while (1) {
         if(recv(pipe->fd_send, p, 1, 0)<=0) break;
-        if(ismsg) send(pipe->fd_recv, msg, 8, 0),ismsg=0;
-        send(pipe->fd_recv, p, 1, 0);
-        if(*p=='\n') ismsg=1;
+        if(*p=='\n'){
+            *(p+1)='\0';
+            send(pipe->fd_recv, buf, strlen(buf), 0);
+            strcpy(buf,"Message:");
+            p=buf+8;
+        }
+        else p++;
     }
     return NULL;
 }
