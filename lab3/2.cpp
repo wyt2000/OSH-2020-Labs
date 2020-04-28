@@ -16,7 +16,7 @@ pthread_cond_t cv[32];
 pthread_t recv_thread[32];
 pthread_t send_thread[32];
 pthread_t log_thread[32];
-bool sending[32];
+bool ready[32];
 
 struct Pipe {
     int uid;
@@ -39,8 +39,9 @@ void *handle_send(void *data) {
         
         //wait for the ready signal to send
         pthread_mutex_lock(&send_mutex[pipe->uid]);
-        pthread_cond_wait(&cv[pipe->uid],&send_mutex[pipe->uid]);
-        
+        while(!ready[pipe->uid]){
+            pthread_cond_wait(&cv[pipe->uid],&send_mutex[pipe->uid]);
+        }
         //send all the characters in the send queue to the other clients
         while(!send_queue[pipe->uid].empty()){
             c=send_queue[pipe->uid].front();
@@ -57,7 +58,7 @@ void *handle_send(void *data) {
 
         //unlock all the mutex for other threads to send 
         for(int i=0;i<32;i++) if(pipe->fd[i]) pthread_mutex_unlock(&send_mutex[i]);
-
+        ready[pipe->uid]=0;
     }
     return NULL;
 }
@@ -71,11 +72,17 @@ void *handle_recv(void *data){
     while(1){
         if(recv(pipe->fd[pipe->uid], p, 1, 0)<=0) break;
         send_queue[pipe->uid].push(*p);
-        printf("thread%d recv: %c\n",pipe->fd[pipe->uid],*p); 
+         
+        //when '\n' appears, lock all the mutexes except the mutex of this uid.
+        //then send the signal to wake up the send thread.
+        //if other recv finishes after that, it will block here.
         if(*p=='\n'){
-            for(int i=0;i<32;i++) if(pipe->fd[i]&&i!=pipe->uid) pthread_mutex_lock(&send_mutex[i]);
+            for(int i=0;i<32;i++) if(pipe->fd[i]) pthread_mutex_lock(&send_mutex[i]);
+            ready[pipe->uid]=1;
             pthread_cond_signal(&cv[pipe->uid]);
+            pthread_mutex_unlock(&send_mutex[pipe->uid]);
         }
+
     }
     pthread_cancel(send_thread[pipe->uid]);
     return NULL;
@@ -90,6 +97,7 @@ void *handle_logout(void *data){
     printf("user%d disconnected!\n",id->uid);
     pthread_mutex_destroy(&send_mutex[id->uid]);
     pthread_cond_destroy(&cv[id->uid]);
+    ready[id->uid]=0;
     return NULL;
 }
 
