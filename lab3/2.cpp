@@ -8,16 +8,17 @@
 #include <errno.h>
 #include <queue>
 #define MAXLEN 1049000 
+#define MAXUSER 35
 using std::queue;
 
-queue<char> send_queue[32];
+queue<char> send_queue[MAXUSER];
 
-pthread_mutex_t send_mutex[32];
-pthread_cond_t cv[32];
-pthread_t recv_thread[32];
-pthread_t send_thread[32];
-pthread_t log_thread[32];
-bool ready[32];
+pthread_mutex_t send_mutex[MAXUSER];
+pthread_cond_t cv[MAXUSER];
+pthread_t recv_thread[MAXUSER];
+pthread_t send_thread[MAXUSER];
+pthread_t log_thread[MAXUSER];
+bool ready[MAXUSER];
 
 struct Pipe {
     int uid;
@@ -49,7 +50,7 @@ void *handle_send(void *data) {
             pos++;
         }
         buf[pos]='\0';
-        for(int i=0;i<32;i++){
+        for(int i=0;i<MAXUSER;i++){
             if(pipe->fd[i]&&i!=pipe->uid){
                 send(pipe->fd[i], buf, strlen(buf), 0);
             }
@@ -58,7 +59,7 @@ void *handle_send(void *data) {
         pos=strlen(buf);
 
         //unlock all the mutex for other threads to send 
-        for(int i=0;i<32;i++) if(pipe->fd[i]) pthread_mutex_unlock(&send_mutex[i]);
+        for(int i=0;i<MAXUSER;i++) if(pipe->fd[i]) pthread_mutex_unlock(&send_mutex[i]);
         ready[pipe->uid]=0;
     }
     return NULL;
@@ -78,7 +79,7 @@ void *handle_recv(void *data){
         //then send the signal to wake up the send thread.
         //if other recv finishes after that, it will block here.
         if(*p=='\n'){
-            for(int i=0;i<32;i++) if(pipe->fd[i]) pthread_mutex_lock(&send_mutex[i]);
+            for(int i=0;i<MAXUSER;i++) if(pipe->fd[i]) pthread_mutex_lock(&send_mutex[i]);
             ready[pipe->uid]=1;
             pthread_cond_signal(&cv[pipe->uid]);
             pthread_mutex_unlock(&send_mutex[pipe->uid]);
@@ -103,7 +104,7 @@ void *handle_logout(void *data){
 }
 
 int main(int argc, char **argv) {
-    int socketfd,fd[32]={0};
+    int socketfd,fd[MAXUSER]={0};
     int port = atoi(argv[1]);
     if ((socketfd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
         perror("socket");
@@ -118,28 +119,27 @@ int main(int argc, char **argv) {
         perror("bind");
         return 1;
     }
-    if (listen(socketfd, 32)) {
+    if (listen(socketfd, MAXUSER)) {
         perror("listen");
         return 1;
     }
 
-    struct Pipe pipe[32];
-    struct ID id[32];
-    for(int i=0;i<32;i++){
+    struct Pipe pipe[MAXUSER];
+    struct ID id[MAXUSER];
+    for(int i=0;i<MAXUSER;i++){
         pipe[i].fd=fd;
         id[i].fd=fd;
     }
     while(1){
         int uid=-1;
-        for(int i=0;i<32;i++){
+        for(int i=0;i<MAXUSER;i++){
             if(!fd[i]){
                 uid=i;
                 break;
             } 
         }
         if(uid==-1){
-            printf("There are already 32 users!\n.");
-            break;
+            continue;
         }
         int fdt = accept(socketfd, NULL, NULL);
         if (fdt == -1) {
