@@ -10,7 +10,7 @@
 #include <errno.h>
 #include <string>
 #include <iostream>
-#define MAXLEN 1049000 
+#define MAXLEN 1049000*35
 #define MAXUSER 35
 using std::string;
 
@@ -131,7 +131,7 @@ int main(int argc, char **argv) {
             send_queue[i].copy(buffer,send_queue[i].size()+1);
             buffer[send_queue[i].size()]='\0';
             ssize_t len=send(fd[i], buffer, strlen(buffer), 0);
-            if(len>0) send_queue[i]=send_queue[i].substr(len);
+            if(len>0&&len<send_queue[i].size()) send_queue[i]=send_queue[i].substr(len);
             else send_queue[i].clear();
         }
     }
