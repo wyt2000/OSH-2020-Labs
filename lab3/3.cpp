@@ -9,15 +9,18 @@
 #include <netinet/in.h>
 #include <errno.h>
 #include <string>
+#include <iostream>
 #define MAXLEN 1049000 
 #define MAXUSER 35
 using std::string;
+using std::cout;
+using std::endl;
 
 string send_queue[MAXUSER];
 int fd[MAXUSER];
 char c;
-char buffer[MAXLEN];
 char msg[10];
+char buffer[MAXLEN];
 
 int main(int argc, char **argv) {
     int port = atoi(argv[1]);
@@ -57,11 +60,13 @@ int main(int argc, char **argv) {
     int maxfd=socketfd;
     int select_val;
     int num=0;
-    
+
     while (1) {
+
         //restore fd sets
         FD_ZERO(&recvfds);
         FD_ZERO(&sendfds);
+        FD_SET(socketfd,&recvfds);
         for(int i=0;i<MAXUSER;i++){
             if(fd[i]){
                 FD_SET(fd[i],&recvfds);
@@ -91,6 +96,7 @@ int main(int argc, char **argv) {
                 fcntl(fd[num], F_SETFL, fcntl(fd[num], F_GETFL, 0) | O_NONBLOCK);
                 if(fd[num]>maxfd) maxfd=fd[num];
             }
+            else fd[num]=0;
         }
 
         //handle recv
@@ -109,14 +115,14 @@ int main(int argc, char **argv) {
                         send_queue[j]+=c;
                         send_queue[j]+='\0';
                         sprintf(msg,"user%d: ",i);
-                        send_queue[i]=string(msg)+send_queue[i];
+                        send_queue[j]=string(msg)+send_queue[j];
                     }
                     break;
                 }
                 else{
                     for(int j=0;j<MAXUSER;j++){
                         if(!fd[j]||j==i) continue;
-                        send_queue[i]+=c;
+                        send_queue[j]+=c;
                     }
                 }
             }
@@ -124,11 +130,11 @@ int main(int argc, char **argv) {
 
         //handle send
         for(int i=0;i<MAXUSER;i++){
-            if(!fd[i]||!FD_ISSET(fd[i], &sendfds)) continue;
+            if(!fd[i]||!FD_ISSET(fd[i], &sendfds)||send_queue[i].empty()) continue;
             send_queue[i].copy(buffer,send_queue[i].size()+1);
             buffer[send_queue[i].size()]='\0';
-            long long len=send(fd[i], buffer, sizeof(buffer), 0);
-            if(len>0&&errno!=EAGAIN) send_queue[i]=send_queue[i].substr(len);
+            ssize_t len=send(fd[i], buffer, strlen(buffer), 0);
+            if(len>0) send_queue[i]=send_queue[i].substr(len);
             else send_queue[i].clear();
         }
     }
