@@ -13,8 +13,6 @@
 #define MAXLEN 1049000 
 #define MAXUSER 35
 using std::string;
-using std::cout;
-using std::endl;
 
 string send_queue[MAXUSER];
 int fd[MAXUSER];
@@ -113,7 +111,6 @@ int main(int argc, char **argv) {
                     for(int j=0;j<MAXUSER;j++){
                         if(!fd[j]||j==i) continue;
                         send_queue[j]+=c;
-                        send_queue[j]+='\0';
                         sprintf(msg,"user%d: ",i);
                         send_queue[j]=string(msg)+send_queue[j];
                     }
