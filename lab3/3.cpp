@@ -19,6 +19,7 @@ int fd[MAXUSER];
 char c;
 char msg[10];
 char buffer[MAXLEN];
+string tmp;
 
 int main(int argc, char **argv) {
     int port = atoi(argv[1]);
@@ -32,6 +33,7 @@ int main(int argc, char **argv) {
     fcntl(socketfd, F_SETFL, fcntl(socketfd, F_GETFL, 0) | O_NONBLOCK);
 
     //In order to test non-blocking send, I manually make the buffer smaller.
+    /*
     int send_size=1;
     socklen_t optlen;
     optlen=sizeof(send_size);
@@ -39,7 +41,7 @@ int main(int argc, char **argv) {
     optlen=sizeof(send_size);
     getsockopt(socketfd, SOL_SOCKET, SO_SNDBUF,&send_size, &optlen); 
     //end
-
+    */
     struct sockaddr_in addr;
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = INADDR_ANY;
@@ -55,22 +57,18 @@ int main(int argc, char **argv) {
     }
 
     fd_set recvfds,sendfds;
+    fd_set recvfds_bk,sendfds_bk;
+    FD_ZERO(&recvfds_bk);
+    FD_ZERO(&sendfds_bk);
+    FD_SET(socketfd,&recvfds_bk);
     int maxfd=socketfd;
     int select_val;
     int num=0;
 
     while (1) {
-
         //restore fd sets
-        FD_ZERO(&recvfds);
-        FD_ZERO(&sendfds);
-        FD_SET(socketfd,&recvfds);
-        for(int i=0;i<MAXUSER;i++){
-            if(fd[i]){
-                FD_SET(fd[i],&recvfds);
-                FD_SET(fd[i],&sendfds);
-            }
-        }
+        recvfds=recvfds_bk;
+        sendfds=sendfds_bk;
 
         //select the recvable and sendable fds
         select_val=select(maxfd + 1, &recvfds, &sendfds, NULL, NULL);
@@ -93,6 +91,8 @@ int main(int argc, char **argv) {
                 printf("user%d connected!\n",num);
                 fcntl(fd[num], F_SETFL, fcntl(fd[num], F_GETFL, 0) | O_NONBLOCK);
                 if(fd[num]>maxfd) maxfd=fd[num];
+                FD_SET(fd[num],&recvfds_bk);
+                FD_SET(fd[num],&sendfds_bk);
             }
             else fd[num]=0;
         }
@@ -107,20 +107,18 @@ int main(int argc, char **argv) {
                     send_queue[i].clear();
                     break;
                 }
+                tmp+=c;
                 if(c=='\n'){
                     for(int j=0;j<MAXUSER;j++){
                         if(!fd[j]||j==i) continue;
-                        send_queue[j]+=c;
-                        sprintf(msg,"user%d: ",i);
-                        send_queue[j]=string(msg)+send_queue[j];
+                        if(send_queue[j].empty()){
+                            sprintf(msg,"user%d: ",i);
+                            send_queue[j]=string(msg);
+                        }
+                        send_queue[j]+=tmp;
                     }
+                    tmp.clear();
                     break;
-                }
-                else{
-                    for(int j=0;j<MAXUSER;j++){
-                        if(!fd[j]||j==i) continue;
-                        send_queue[j]+=c;
-                    }
                 }
             }
         }
