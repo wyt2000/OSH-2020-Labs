@@ -16,6 +16,7 @@ int main(){
             printf("%c",c);
         }
         printf("\n");
+        printf("This is the end of %s. \n",filename);
     }
     return 0;
 }
