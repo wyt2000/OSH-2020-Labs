@@ -7,18 +7,18 @@
 #include <pthread.h>
 #include <errno.h>
 #include <string>
+#include <queue>
 #define MAXLEN 1049000 
 #define MAXUSER 35
 using std::string;
-
-string send_queue[MAXUSER];
+using std::queue;
+queue<string> send_queue[MAXUSER];
 
 pthread_mutex_t send_mutex[MAXUSER];
 pthread_cond_t cv[MAXUSER];
 pthread_t recv_thread[MAXUSER];
 pthread_t send_thread[MAXUSER];
 pthread_t log_thread[MAXUSER];
-bool ready[MAXUSER];
 
 struct Pipe {
     int uid;
@@ -34,27 +34,19 @@ struct ID{
 void *handle_send(void *data) {
     struct Pipe *pipe = (struct Pipe *)data;
     char buffer[MAXLEN];
+    string s;
     while (1) {
-        
-        //wait for the ready signal to send
         pthread_mutex_lock(&send_mutex[pipe->uid]);
-        while(!ready[pipe->uid]){
+        while(send_queue[pipe->uid].empty()){
             pthread_cond_wait(&cv[pipe->uid],&send_mutex[pipe->uid]);
         }
-        //send all the characters in the send queue to the other clients
-        send_queue[pipe->uid].copy(buffer,send_queue[pipe->uid].size()+1);
-        buffer[send_queue[pipe->uid].size()]='\0';
-        send_queue[pipe->uid].clear();
+        s=send_queue[pipe->uid].front();
+        send_queue[pipe->uid].pop();
+        s.copy(buffer,s.size()+1);
+        buffer[s.size()]='\0';
 
-        for(int i=0;i<MAXUSER;i++){
-            if(pipe->fd[i]&&i!=pipe->uid){
-                send(pipe->fd[i], buffer, strlen(buffer), 0);
-            }
-        }
-
-        //unlock all the mutex for other threads to send 
-        for(int i=0;i<MAXUSER;i++) if(pipe->fd[i]) pthread_mutex_unlock(&send_mutex[i]);
-        ready[pipe->uid]=0;
+        pthread_mutex_unlock(&send_mutex[pipe->uid]);
+        send(pipe->fd[pipe->uid], buffer, strlen(buffer), 0);
     }
     return NULL;
 }
@@ -62,7 +54,7 @@ void *handle_send(void *data) {
 void *handle_recv(void *data){
     struct Pipe *pipe = (struct Pipe *)data;
     char c;
-    string buf;
+    string buf,s;
     char msg[20];
     sprintf(msg,"user%d: ",pipe->uid);
     pthread_create(&send_thread[pipe->uid], NULL, handle_send, (void *)pipe); 
@@ -72,14 +64,16 @@ void *handle_recv(void *data){
         buf+=c;
         //when '\n' appears, lock all the mutexes except the mutex of this uid.
         //then send the signal to wake up the send thread.
-        //if other recv finishes after that, it will block here.
         if(c=='\n'){
-            for(int i=0;i<MAXUSER;i++) if(pipe->fd[i]) pthread_mutex_lock(&send_mutex[i]);
-            send_queue[pipe->uid]=msg+buf;
+            for(int i=0;i<MAXUSER;i++){
+                if(!pipe->fd[i]||i==pipe->uid) continue;
+                pthread_mutex_lock(&send_mutex[i]);
+                s=msg+buf;
+                send_queue[i].push(s);
+                pthread_cond_signal(&cv[i]);
+                pthread_mutex_unlock(&send_mutex[i]);
+            }
             buf.clear();
-            ready[pipe->uid]=1;
-            pthread_cond_signal(&cv[pipe->uid]);
-            pthread_mutex_unlock(&send_mutex[pipe->uid]);
         }
 
     }
@@ -96,7 +90,6 @@ void *handle_logout(void *data){
     printf("user%d disconnected!\n",id->uid);
     pthread_mutex_destroy(&send_mutex[id->uid]);
     pthread_cond_destroy(&cv[id->uid]);
-    ready[id->uid]=0;
     return NULL;
 }
 
@@ -146,7 +139,7 @@ int main(int argc, char **argv) {
         printf("user%d connected!\n",uid);
         
         //clear send queue
-        send_queue[uid].clear();
+        while(!send_queue[uid].empty()) send_queue[uid].pop();
 
         //init mutex and cond
         send_mutex[uid]=PTHREAD_MUTEX_INITIALIZER;
