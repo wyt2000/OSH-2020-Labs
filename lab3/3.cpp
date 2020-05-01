@@ -38,8 +38,6 @@ int main(int argc, char **argv) {
     socklen_t optlen;
     optlen=sizeof(send_size);
     setsockopt(socketfd, SOL_SOCKET, SO_SNDBUF,(char *)&send_size, optlen); 
-    optlen=sizeof(send_size);
-    getsockopt(socketfd, SOL_SOCKET, SO_SNDBUF,&send_size, &optlen); 
     //end
     */
     struct sockaddr_in addr;

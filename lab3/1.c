@@ -17,11 +17,16 @@ void *handle_chat(void *data) {
     struct Pipe *pipe = (struct Pipe *)data;
     char buf[MAXLEN]="Message:";
     char *p=buf+8;
+    ssize_t len=0;
     while (1) {
         if(recv(pipe->fd_send, p, 1, 0)<=0) break;
         if(*p=='\n'){
             *(p+1)='\0';
-            send(pipe->fd_recv, buf, strlen(buf), 0);
+            while(1){
+                len=send(pipe->fd_recv, buf, strlen(buf), 0);
+                if(len>=0&&len<strlen(buf)) strcpy(buf,buf+len);
+                else break;
+            }
             strcpy(buf,"Message:");
             p=buf+8;
         }

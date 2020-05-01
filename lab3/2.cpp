@@ -34,6 +34,7 @@ struct ID{
 void *handle_send(void *data) {
     struct Pipe *pipe = (struct Pipe *)data;
     char buffer[MAXLEN];
+    ssize_t len=0;
     string s;
     while (1) {
         pthread_mutex_lock(&send_mutex[pipe->uid]);
@@ -47,6 +48,11 @@ void *handle_send(void *data) {
 
         pthread_mutex_unlock(&send_mutex[pipe->uid]);
         send(pipe->fd[pipe->uid], buffer, strlen(buffer), 0);
+        while(1){
+            len=send(pipe->fd[pipe->uid], buffer, strlen(buffer), 0);
+            if(len>=0&&len<strlen(buffer)) strcpy(buffer,buffer+len);
+            else break;
+        }
     }
     return NULL;
 }
