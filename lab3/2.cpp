@@ -47,7 +47,6 @@ void *handle_send(void *data) {
         buffer[s.size()]='\0';
 
         pthread_mutex_unlock(&send_mutex[pipe->uid]);
-        send(pipe->fd[pipe->uid], buffer, strlen(buffer), 0);
         while(1){
             len=send(pipe->fd[pipe->uid], buffer, strlen(buffer), 0);
             if(len>=0&&len<strlen(buffer)) strcpy(buffer,buffer+len);
