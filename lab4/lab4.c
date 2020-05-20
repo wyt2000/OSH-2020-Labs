@@ -3,6 +3,9 @@
 #include <sched.h>  // For clone(2)
 #include <signal.h> // For SIGCHLD constant
 #include <unistd.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
 #include <sys/mman.h>  // For mmap(2)
 #include <sys/types.h> // For wait(2)
 #include <sys/wait.h>  // For wait(2)
@@ -29,18 +32,46 @@ static int pivot_root(const char *new_root, const char *put_old)
 int child(void *arg)
 {
     char **target = (char **)arg;
-    if (chroot(".") == -1)
-        error_exit(1, "chroot");
-    if (mount("udev", "/dev", "devtmpfs",MS_NOSUID | MS_RELATIME, NULL) != 0)
-        error_exit(1, "mount 2");
+
+    if (mount("none", "/", NULL, MS_REC | MS_PRIVATE, NULL) != 0)
+        error_exit(1, "mount /");
+
+    //create tmpdir for bind
+    char tmpdir[] = "./tmp/lab4-XXXXXX";
+    strcpy(tmpdir, mkdtemp(tmpdir));
+    if (tmpdir == NULL)
+        error_exit(1, "mkdtemp");
+
+    //bind mount the root to tmpdir
+    if (mount(".", tmpdir, NULL, MS_BIND, NULL) != 0)
+        error_exit(1, "mount tempdir");
+    
+    //change root file system
+    char oldrootdir[] = "./tmp/lab4-XXXXXX/oldroot";
+    sprintf(oldrootdir, "%s/oldroot", tmpdir);
+    mkdir(oldrootdir, 0);
+    printf("%s\n", oldrootdir);
+    if (pivot_root(tmpdir, oldrootdir) != 0)
+        error_exit(1, "pivot_root");
+    
+    //umount oldroot
+    if (umount2("/oldroot", MNT_DETACH) !=0)
+        error_exit(1, "umount2");
+    if (rmdir("/oldroot") != 0)
+        error_exit(1, "rmdir");
+
+    //mount file systems
+    if (mount("udev", "/dev", "devtmpfs", MS_NOSUID | MS_RELATIME, NULL) != 0)
+        error_exit(1, "mount /dev");
     if (mount("proc", "/proc", "proc", MS_NOSUID | MS_NODEV | MS_NOEXEC | MS_RELATIME, NULL) != 0)
-        error_exit(1, "mount 3");
+        error_exit(1, "mount /proc");
     if (mount("sysfs", "/sys", "sysfs",MS_RDONLY | MS_NOSUID | MS_NODEV | MS_NOEXEC | MS_RELATIME, NULL) != 0)
-        error_exit(1, "mount 4");
+        error_exit(1, "mount /sys");
     if (mount("tmpfs", "/run", "tmpfs",MS_NOSUID | MS_NOEXEC | MS_RELATIME, NULL) != 0)
-        error_exit(1, "mount 5");
+        error_exit(1, "mount /run");
     execvp(target[2], target + 2);
     error_exit(255, "exec");
+
 }
 
 int main(int argc, char **argv)
@@ -59,10 +90,7 @@ int main(int argc, char **argv)
                              -1, 0);
     // Assume stack grows downwards
     void *child_stack_start = child_stack + STACK_SIZE;
-
-    if (mount("none", "/", NULL, MS_REC | MS_PRIVATE, NULL)!=0)
-        error_exit(1, "mount 1");
-
+    
     // Child goes for target program
     clone(child, child_stack_start,
           CLONE_NEWNS | CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWPID | CLONE_NEWCGROUP | SIGCHLD,
