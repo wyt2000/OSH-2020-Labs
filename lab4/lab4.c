@@ -13,6 +13,11 @@
 #include <sys/syscall.h> // For syscall(2)
 #define STACK_SIZE (1024 * 1024)
 
+struct Message{
+    char **target;
+    int *fd;
+}msg;
+
 const char *usage =
     "Usage: %s <directory> <command> [args...]\n"
     "\n"
@@ -31,8 +36,11 @@ static int pivot_root(const char *new_root, const char *put_old)
 
 int child(void *arg)
 {
-    char **target = (char **)arg;
-
+    struct Message *m = (struct Message *)arg;
+    char **target = m->target;
+    int *fd = m->fd;
+    printf("%d,%d\n",fd[0],fd[1]);
+    close(fd[0]);
     if (mount("none", "/", NULL, MS_REC | MS_PRIVATE, NULL) != 0)
         error_exit(1, "mount /");
 
@@ -50,7 +58,7 @@ int child(void *arg)
     char oldrootdir[] = "./tmp/lab4-XXXXXX/oldroot";
     sprintf(oldrootdir, "%s/oldroot", tmpdir);
     mkdir(oldrootdir, 0);
-    printf("%s\n", oldrootdir);
+
     if (pivot_root(tmpdir, oldrootdir) != 0)
         error_exit(1, "pivot_root");
     
@@ -59,7 +67,9 @@ int child(void *arg)
         error_exit(1, "umount2");
     if (rmdir("/oldroot") != 0)
         error_exit(1, "rmdir");
-
+    //imform father pross to remove file
+    write(fd[1],tmpdir,sizeof(tmpdir));
+    
     //mount file systems
     if (mount("udev", "/dev", "devtmpfs", MS_NOSUID | MS_RELATIME, NULL) != 0)
         error_exit(1, "mount /dev");
@@ -71,7 +81,6 @@ int child(void *arg)
         error_exit(1, "mount /run");
     execvp(target[2], target + 2);
     error_exit(255, "exec");
-
 }
 
 int main(int argc, char **argv)
@@ -90,11 +99,28 @@ int main(int argc, char **argv)
                              -1, 0);
     // Assume stack grows downwards
     void *child_stack_start = child_stack + STACK_SIZE;
-    
+    int fd[2]={0};
+    if(pipe(fd)==-1)
+        error_exit(1,"pipe");
+
+    msg.target=argv;
+    msg.fd=fd;
+
     // Child goes for target program
     clone(child, child_stack_start,
           CLONE_NEWNS | CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWPID | CLONE_NEWCGROUP | SIGCHLD,
-          argv);
+          (void*) &msg);
+    char tmpdir[30];
+
+    close(fd[1]);
+    while (1)
+    {
+        if(read(fd[0], tmpdir, sizeof(tmpdir))!=0) 
+        break;
+    }
+    printf("%s\n",tmpdir);
+    if(rmdir(tmpdir)!=0)
+        error_exit(1,"rmdir");
 
     // Parent waits for child
     int status, ecode = 0;
