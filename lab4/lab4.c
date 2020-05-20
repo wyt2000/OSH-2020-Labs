@@ -39,7 +39,6 @@ int child(void *arg)
     struct Message *m = (struct Message *)arg;
     char **target = m->target;
     int *fd = m->fd;
-    printf("%d,%d\n",fd[0],fd[1]);
     close(fd[0]);
     if (mount("none", "/", NULL, MS_REC | MS_PRIVATE, NULL) != 0)
         error_exit(1, "mount /");
@@ -118,7 +117,6 @@ int main(int argc, char **argv)
         if(read(fd[0], tmpdir, sizeof(tmpdir))!=0) 
         break;
     }
-    printf("%s\n",tmpdir);
     if(rmdir(tmpdir)!=0)
         error_exit(1,"rmdir");
 
