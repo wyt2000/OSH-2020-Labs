@@ -11,6 +11,7 @@
 #include <sys/wait.h>  // For wait(2)
 #include <sys/mount.h> // For mount(2)
 #include <sys/syscall.h> // For syscall(2)
+#include <cap-ng.h>
 #define STACK_SIZE (1024 * 1024)
 
 struct Message{
@@ -66,9 +67,7 @@ int child(void *arg)
         error_exit(1, "umount2");
     if (rmdir("/oldroot") != 0)
         error_exit(1, "rmdir");
-    //imform father pross to remove file
-    write(fd[1],tmpdir,sizeof(tmpdir));
-    
+
     //mount file systems
     if (mount("udev", "/dev", "devtmpfs", MS_NOSUID | MS_RELATIME, NULL) != 0)
         error_exit(1, "mount /dev");
@@ -78,6 +77,21 @@ int child(void *arg)
         error_exit(1, "mount /sys");
     if (mount("tmpfs", "/run", "tmpfs",MS_NOSUID | MS_NOEXEC | MS_RELATIME, NULL) != 0)
         error_exit(1, "mount /run");
+
+    
+    //Keep several capabilities
+    capng_clear(CAPNG_SELECT_BOTH);
+    capng_updatev(CAPNG_ADD, CAPNG_EFFECTIVE | CAPNG_PERMITTED | CAPNG_BOUNDING_SET,
+                  CAP_SETPCAP, CAP_MKNOD, CAP_AUDIT_WRITE, CAP_CHOWN,
+                  CAP_NET_RAW, CAP_DAC_OVERRIDE, CAP_FOWNER, CAP_FSETID,
+                  CAP_KILL, CAP_SETGID, CAP_SETUID, CAP_NET_BIND_SERVICE,
+                  CAP_SYS_CHROOT, CAP_SETFCAP
+                  -1);
+    capng_apply(CAPNG_SELECT_BOTH);
+
+    //imform father pross to remove file
+    write(fd[1], tmpdir, sizeof(tmpdir));
+    
     execvp(target[2], target + 2);
     error_exit(255, "exec");
 }
