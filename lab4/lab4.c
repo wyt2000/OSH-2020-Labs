@@ -12,12 +12,17 @@
 #include <sys/mount.h> // For mount(2)
 #include <sys/syscall.h> // For syscall(2)
 #include <cap-ng.h>
+#include <seccomp.h>
+#include "syscall_names.h"
 #define STACK_SIZE (1024 * 1024)
+#define NAME_NUM 326
 
 struct Message{
     char **target;
     int *fd;
 }msg;
+
+scmp_filter_ctx ctx;
 
 const char *usage =
     "Usage: %s <directory> <command> [args...]\n"
@@ -68,6 +73,9 @@ int child(void *arg)
     if (rmdir("/oldroot") != 0)
         error_exit(1, "rmdir");
 
+    //imform father process to remove file
+    write(fd[1], tmpdir, sizeof(tmpdir));
+
     //mount file systems
     if (mount("udev", "/dev", "devtmpfs", MS_NOSUID | MS_RELATIME, NULL) != 0)
         error_exit(1, "mount /dev");
@@ -77,7 +85,6 @@ int child(void *arg)
         error_exit(1, "mount /sys");
     if (mount("tmpfs", "/run", "tmpfs",MS_NOSUID | MS_NOEXEC | MS_RELATIME, NULL) != 0)
         error_exit(1, "mount /run");
-
     
     //Keep several capabilities
     capng_clear(CAPNG_SELECT_BOTH);
@@ -89,9 +96,19 @@ int child(void *arg)
                   -1);
     capng_apply(CAPNG_SELECT_BOTH);
 
-    //imform father pross to remove file
-    write(fd[1], tmpdir, sizeof(tmpdir));
-    
+    //filter some syscalls
+    ctx = seccomp_init(SCMP_ACT_KILL);
+    if (ctx == NULL)
+        error_exit(1, "seccomp_init");
+    char name[50];
+    for (int i = 0; i < NAME_NUM; i++)
+    {
+        if (seccomp_rule_add(ctx, SCMP_ACT_ALLOW, names[i], 0) < 0)
+            error_exit(1, "seccomp_rule_add");
+    }
+    if (seccomp_load(ctx) < 0)
+        error_exit(1, "seccomp_load");
+
     execvp(target[2], target + 2);
     error_exit(255, "exec");
 }
@@ -137,6 +154,7 @@ int main(int argc, char **argv)
     // Parent waits for child
     int status, ecode = 0;
     wait(&status);
+    seccomp_release(ctx);
     if (WIFEXITED(status))
     {
         printf("Exited with status %d\n", WEXITSTATUS(status));
