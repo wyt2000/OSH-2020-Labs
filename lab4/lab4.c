@@ -41,16 +41,49 @@ static int pivot_root(const char *new_root, const char *put_old)
     return syscall(SYS_pivot_root, new_root, put_old);
 }
 
+void create_file(const char *filename){
+    char message[100]="create file: ";
+    if (access(filename, F_OK) != -1)
+        rmdir(filename);
+    if (mkdir(filename, 0777) != 0)
+        error_exit(1, strcat(message, filename));
+    return;
+}
+
 void write_file(const char *filename,const int content){
+    char message[100]="write file: ";
     char buf[100]={0};
     sprintf(buf,"%d",content);
     int fdt = open(filename, O_WRONLY);
     if(write(fdt, buf, sizeof(buf)) == -1)
-        error_exit(1, filename);
+        error_exit(1, strcat(message, filename));
     close(fdt);
     return;
 }
 
+void remove_file(const char *filename){
+    char message[100]="remove_file: ";
+    char tmp[100]={0};
+    char ctx[100]={0};
+    int fd[2]={0};
+    strcpy(tmp,filename);
+    strcat(tmp,"restrict/cgroup.procs");
+    fd[0]=open(tmp, O_RDONLY);
+    if(fd[0]==-1) error_exit(1,"open");
+    if(read(fd[0],ctx,sizeof(ctx))==-1)
+        error_exit(1,"read");
+    strcpy(tmp, filename);
+    strcat(tmp, "cgroup.procs");
+    fd[1]=open(tmp, O_WRONLY);
+    if(fd[1]==-1) error_exit(1,"open");
+    if(write(fd[1],ctx,sizeof(ctx))==-1)
+        error_exit(1,"write");
+    strcpy(tmp, filename);
+    strcat(tmp, "restrict");
+    if(rmdir(tmp)!=0)
+        error_exit(1,"rmdir");
+    return;
+} 
 
 int child(void *arg)
 {
@@ -106,18 +139,19 @@ int child(void *arg)
         error_exit(1,"chdir");
     if (mkdir("memory",0) !=0)
         error_exit(1,"mkdir memory");
-    if (mkdir("cpu", 0) != 0)
+    if (mkdir("cpu,cpuacct", 0) != 0)
         error_exit(1, "mkdir cpu");
     if (mkdir("pids", 0) != 0)
         error_exit(1, "mkdir pids");
     if (mount("cgroup", "/sys/fs/cgroup/memory", "cgroup", MS_NOSUID | MS_NODEV | MS_NOEXEC , "memory") != 0)
         error_exit(1,"mount memory");
-    if (mount("cgroup", "/sys/fs/cgroup/cpu", "cgroup", MS_NOSUID | MS_NODEV | MS_NOEXEC , "cpu,cpuacct") != 0)
+    if (mount("cgroup", "/sys/fs/cgroup/cpu,cpuacct", "cgroup", MS_NOSUID | MS_NODEV | MS_NOEXEC , "cpu,cpuacct") != 0)
         error_exit(1, "mount cpu");
     if (mount("cgroup", "/sys/fs/cgroup/pids", "cgroup", MS_NOSUID | MS_NODEV | MS_NOEXEC, "pids") != 0)
         error_exit(1, "mount pids");
 
-
+    if (chdir("/") == -1)
+        error_exit(1, "chdir");
 
     //Keep several capabilities
     capng_clear(CAPNG_SELECT_BOTH);
@@ -153,24 +187,25 @@ int main(int argc, char **argv)
         fprintf(stderr, usage, argv[0]);
         return 1;
     }
+    //restrict memory resource
+    create_file("/sys/fs/cgroup/memory/restrict");
+    write_file("/sys/fs/cgroup/memory/restrict/memory.limit_in_bytes", 67108864);
+    write_file("/sys/fs/cgroup/memory/restrict/memory.kmem.limit_in_bytes", 67108864);
+    write_file("/sys/fs/cgroup/memory/restrict/memory.swappiness", 0);
+    write_file("/sys/fs/cgroup/memory/restrict/cgroup.procs", getpid());
+
+    //restrict cpu shares
+    create_file("/sys/fs/cgroup/cpu,cpuacct/restrict");
+    write_file("/sys/fs/cgroup/cpu,cpuacct/restrict/cpu.shares", 256);
+    write_file("/sys/fs/cgroup/cpu,cpuacct/restrict/cgroup.procs", getpid());
+
+    //restrict max number of pids
+    create_file("/sys/fs/cgroup/pids/restrict");
+    write_file("/sys/fs/cgroup/pids/restrict/pids.max", 64);
+    write_file("/sys/fs/cgroup/pids/restrict/cgroup.procs", getpid());
+
     if (chdir(argv[1]) == -1)
         error_exit(1, argv[1]);
-    
-    //restrict system resource
-    if (chdir("/sys/fs/cgroup/memory") != 0)
-        error_exit(1, "chdir");
-    if (access("restrict", F_OK) != -1)
-        rmdir("restrict");
-    if (mkdir("restrict", 0777) != 0)
-        error_exit(1, "mkdir restrict");
-    if (chdir("/sys/fs/cgroup/memory/restrict") != 0)
-        error_exit(1, "chdir");
-    write_file("memory.limit_in_bytes", 67108864);
-    write_file("memory.swappiness", 0);
-
-    write_file("cgroup.procs", getpid());
-    if (chdir("/") != 0)
-        error_exit(1, "chdir");
 
     //set memory stack for child
     void *child_stack = mmap(NULL, STACK_SIZE,
@@ -208,6 +243,11 @@ int main(int argc, char **argv)
 
     //release filters
     seccomp_release(ctx);
+
+    //remove restrict
+    remove_file("/sys/fs/cgroup/memory/");
+    remove_file("/sys/fs/cgroup/cpu,cpuacct/");
+    remove_file("/sys/fs/cgroup/pids/");
 
     if (WIFEXITED(status))
     {
