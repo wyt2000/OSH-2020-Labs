@@ -149,6 +149,8 @@ int child(void *arg)
         error_exit(1, "mount cpu");
     if (mount("cgroup", "/sys/fs/cgroup/pids", "cgroup", MS_NOSUID | MS_NODEV | MS_NOEXEC, "pids") != 0)
         error_exit(1, "mount pids");
+    if (mount("tmpfs", "/sys/fs/cgroup", "tmpfs", MS_REMOUNT | MS_RDONLY | MS_NOSUID | MS_NOEXEC | MS_NODEV | MS_NODIRATIME, "mode=755") != 0)
+        error_exit(1, "mount /sys/fs/cgroup");
 
     if (chdir("/") == -1)
         error_exit(1, "chdir");
