@@ -14,16 +14,14 @@
 #include <sys/syscall.h> // For syscall(2)
 #include <cap-ng.h>
 #include <seccomp.h>
+#include <stddef.h>
 #include "syscall_names.h"
 #define STACK_SIZE (1024 * 1024)
-#define NAME_NUM 326
 
 struct Message{
     char **target;
     int *fd;
 }msg;
-
-scmp_filter_ctx ctx;
 
 const char *usage =
     "Usage: %s <directory> <command> [args...]\n"
@@ -109,7 +107,7 @@ int child(void *arg)
     char oldrootdir[] = "./tmp/lab4-XXXXXX/oldroot";
     sprintf(oldrootdir, "%s/oldroot", tmpdir);
     if (mkdir(oldrootdir, 0) != 0)
-        error_exit(1, "mkdir");
+        error_exit(1, "mkdir oldroot");
     if (pivot_root(tmpdir, oldrootdir) != 0)
         error_exit(1, "pivot_root");
     
@@ -164,19 +162,6 @@ int child(void *arg)
                   CAP_SYS_CHROOT, CAP_SETFCAP
                   -1);
     capng_apply(CAPNG_SELECT_BOTH);
-
-    //filter some syscalls
-    ctx = seccomp_init(SCMP_ACT_KILL);
-    if (ctx == NULL)
-        error_exit(1, "seccomp_init");
-    char name[50];
-    for (int i = 0; i < NAME_NUM; i++)
-    {
-        if (seccomp_rule_add(ctx, SCMP_ACT_ALLOW, names[i], 0) < 0)
-            error_exit(1, "seccomp_rule_add");
-    }
-    if (seccomp_load(ctx) < 0)
-        error_exit(1, "seccomp_load");
     
     execvp(target[2], target + 2);
     error_exit(255, "exec");
@@ -223,18 +208,38 @@ int main(int argc, char **argv)
     msg.target=argv;
     msg.fd=fd;
 
+    //filter some syscalls
+    scmp_filter_ctx ctx;
+    ctx = seccomp_init(SCMP_ACT_KILL);
+    if (ctx == NULL)
+        error_exit(1, "seccomp_init");
+    char name[50];
+    for (int i = 0; names[i]!=-1 ; i++)
+    {
+        if (seccomp_rule_add(ctx, SCMP_ACT_ALLOW, names[i], 0) < 0)
+            error_exit(1, "seccomp_rule_add");
+    }
+    if (seccomp_load(ctx) < 0)
+        error_exit(1, "seccomp_load");
+
     // Child goes for target program
-    clone(child, child_stack_start,
+    pid_t child_pid = clone(child, child_stack_start,
           CLONE_NEWNS | CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWPID | CLONE_NEWCGROUP | SIGCHLD,
           (void*) &msg);
     
+    if(child_pid == -1)
+        error_exit(1, "clone");
+
     //when finish mounting, remove tmpdir
     char tmpdir[30];
     close(fd[1]);
     while (1)
     {
-        if(read(fd[0], tmpdir, sizeof(tmpdir))!=0) 
-        break;
+        if (read(fd[0], tmpdir, sizeof(tmpdir)) != 0) break;
+        if (waitpid(child_pid, NULL, WNOHANG) != 0){
+            seccomp_release(ctx);
+            error_exit(1,"child");
+        }
     }
     if(rmdir(tmpdir)!=0)
         error_exit(1,"rmdir tmpdir");
