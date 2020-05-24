@@ -34,6 +34,7 @@ void error_exit(int code, const char *message)
     _exit(code);
 }
 
+//wrap syscall pivot_root
 static int pivot_root(const char *new_root, const char *put_old) 
 {
     return syscall(SYS_pivot_root, new_root, put_old);
@@ -85,11 +86,13 @@ void remove_file(const char *filename){
 
 int child(void *arg)
 {
+    //prepare pipe for sending message to parent
     struct Message *m = (struct Message *)arg;
     char **target = m->target;
     int *fd = m->fd;
     close(fd[0]);
 
+    //make private
     if (mount("none", "/", NULL, MS_REC | MS_PRIVATE, NULL) != 0)
         error_exit(1, "mount /");
     
@@ -131,6 +134,7 @@ int child(void *arg)
         error_exit(1, "mount /run");
 
     //mount cgroups controller
+    //Because sys is readonly, mount a tmpfs first so that folder can be made
     if (mount("tmpfs", "/sys/fs/cgroup", "tmpfs", MS_NOSUID | MS_NOEXEC | MS_NODEV | MS_NODIRATIME, "mode=755") != 0)
         error_exit(1, "mount /sys/fs/cgroup");
     if (chdir("/sys/fs/cgroup") != 0) 
@@ -147,6 +151,7 @@ int child(void *arg)
         error_exit(1, "mount cpu");
     if (mount("cgroup", "/sys/fs/cgroup/pids", "cgroup", MS_NOSUID | MS_NODEV | MS_NOEXEC, "pids") != 0)
         error_exit(1, "mount pids");
+    //change tmpfs to readonly
     if (mount("tmpfs", "/sys/fs/cgroup", "tmpfs", MS_REMOUNT | MS_RDONLY | MS_NOSUID | MS_NOEXEC | MS_NODEV | MS_NODIRATIME, "mode=755") != 0)
         error_exit(1, "mount /sys/fs/cgroup");
 
@@ -159,7 +164,7 @@ int child(void *arg)
                   CAP_SETPCAP, CAP_MKNOD, CAP_AUDIT_WRITE, CAP_CHOWN,
                   CAP_NET_RAW, CAP_DAC_OVERRIDE, CAP_FOWNER, CAP_FSETID,
                   CAP_KILL, CAP_SETGID, CAP_SETUID, CAP_NET_BIND_SERVICE,
-                  CAP_SYS_CHROOT, CAP_SETFCAP
+                  CAP_SYS_CHROOT, CAP_SETFCAP,
                   -1);
     capng_apply(CAPNG_SELECT_BOTH);
     
@@ -230,12 +235,13 @@ int main(int argc, char **argv)
     if(child_pid == -1)
         error_exit(1, "clone");
 
-    //when finish mounting, remove tmpdir
+    //when finish mounting, remove tmpdir.
     char tmpdir[30];
     close(fd[1]);
     while (1)
     {
         if (read(fd[0], tmpdir, sizeof(tmpdir)) != 0) break;
+        //if child process return before finish mounting, exit immediately
         if (waitpid(child_pid, NULL, WNOHANG) != 0){
             seccomp_release(ctx);
             error_exit(1,"child");
