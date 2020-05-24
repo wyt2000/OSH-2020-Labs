@@ -325,5 +325,7 @@ int names[] = {
     SCMP_SYS(syslog),
     SCMP_SYS(umount),
     SCMP_SYS(umount2),
-    SCMP_SYS(unshare)
+    SCMP_SYS(unshare),
+    SCMP_SYS(pivot_root),
+    -1
     };
