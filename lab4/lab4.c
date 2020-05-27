@@ -15,6 +15,7 @@
 #include <cap-ng.h>
 #include <seccomp.h>
 #include <stddef.h>
+#include <sys/sysmacros.h>
 #include "syscall_names.h"
 #define STACK_SIZE (1024 * 1024)
 
@@ -124,7 +125,7 @@ int child(void *arg)
     write(fd[1], tmpdir, sizeof(tmpdir));
 
     //mount file systems
-    if (mount("udev", "/dev", "devtmpfs", MS_NOSUID | MS_RELATIME, NULL) != 0)
+    if (mount("tmpfs", "/dev", "tmpfs", MS_NOSUID | MS_RELATIME, NULL) != 0)
         error_exit(1, "mount /dev");
     if (mount("proc", "/proc", "proc", MS_NOSUID | MS_NODEV | MS_NOEXEC | MS_RELATIME, NULL) != 0)
         error_exit(1, "mount /proc");
@@ -157,6 +158,16 @@ int child(void *arg)
 
     if (chdir("/") == -1)
         error_exit(1, "chdir");
+
+    //make some device files
+    if (mknod("/dev/null", S_IFCHR | 0666, makedev(1, 3)) == -1)
+        error_exit(1, "mknod null");
+    if (mknod("/dev/zero", S_IFCHR | 0666, makedev(1, 5)) == -1)
+        error_exit(1, "mknod zero");
+    if (mknod("/dev/urandom", S_IFCHR | 0666, makedev(1, 9)) == -1)
+        error_exit(1, "mknod urandom");
+    if (mknod("/dev/tty", S_IFCHR | 0666, makedev(5, 0)) == -1)
+        error_exit(1, "mknod tty");
 
     //Keep several capabilities
     capng_clear(CAPNG_SELECT_BOTH);
